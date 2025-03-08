@@ -54,11 +54,32 @@ func (pm *PoolManager) GetPool(name string) (*ResourcePool,bool){
 	return p,ok
 }
 
+func (pm *PoolManager) AlterPool(newPool *ResourcePool) bool {
+	oldPool,ok := pm.GetPool(newPool.Name)
+	if !ok {
+		return false
+	}
+	oldPool.mu.Lock()
+	defer oldPool.mu.Unlock()
+	if newPool.MaxCPU > 0 {
+		oldPool.MaxCPU = newPool.MaxCPU
+	}
+	if newPool.MaxMemoryPer > 0 {
+		oldPool.MaxMemoryPer = newPool.MaxMemoryPer
+	}
+	if newPool.MaxConcurrency > 0 {
+		oldPool.MaxConcurrency = newPool.MaxConcurrency
+		oldPool.ActiveQueries = make(chan struct{}, newPool.MaxConcurrency)
+	}
+	return true
+}
+
 func NewResourcePool(name string, maxCPU int, maxMemory int, maxQueries int) *ResourcePool {
 	resourcePool := &ResourcePool{
 		Name: name,
 		MaxCPU: maxCPU,
 		MaxMemoryPer: maxMemory,
+		MaxConcurrency: maxQueries,
 		ActiveQueries: make(chan struct{},maxQueries),
 	}
 	return resourcePool
@@ -132,6 +153,17 @@ func main() {
 			go pm.SubmitQueryToPool(q.name, q.query,&wg)
 		}
 	}
+	newConfig := &ResourcePool{
+		Name:          "test", // Existing pool name
+		MaxCPU:        80,     // Update CPU limit
+		MaxMemoryPer:  70,     // Update Memory limit
+		MaxConcurrency: 50,    // Update max concurrent queries
+	}
+	old,_ := pm.GetPool(newConfig.Name)
+	fmt.Println( " old pool = ", old)
+	pm.AlterPool(newConfig)
+	new,_ := pm.GetPool(newConfig.Name)
+	fmt.Println( " new pool = ", new)
 	wg.Wait()
 	// time.Sleep(4*time.Second)
 	fmt.Print(SystemTotalMem)
