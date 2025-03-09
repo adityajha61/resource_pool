@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"reflect"
+	// "reflect"
 	"sync"
 	"time"
 )
@@ -139,10 +139,13 @@ func (pm *PoolManager) SubmitQueryToPool(name string, query Query, wg *sync.Wait
 }
 
 func (pm *PoolManager) ShowPools() {
-	pm.mu.Lock()
-	defer pm.mu.Unlock()
+	// pm.mu.Lock()
+	// defer pm.mu.Unlock()
 	for name,pool := range pm.pools {
 		pool.mu.Lock()
+		fmt.Print("name = ",name)
+		fmt.Println("pool = " ,pool)
+		pool.mu.Unlock()
 		// copy := ResourcePool{
 		// 	Name: pool.Name,
 		// 	MaxCPU: pool.MaxCPU,
@@ -152,19 +155,19 @@ func (pm *PoolManager) ShowPools() {
 		// 	UsedMemory: pool.UsedMemory,
 		// 	ActiveQueries: pool.ActiveQueries,
 		// }
-		types := reflect.TypeOf(pool).Elem()
-		copy := reflect.New(types).Elem()
-		org := reflect.ValueOf(pool)
-		for i:=0;i< copy.NumField();i++ {
-			field := copy.Type().Field(i)
-			if field.Type != reflect.TypeOf(sync.Mutex{}) {
-				copy.Field(i).Set(org.Elem().Field(i))
-			}
-		}
+		// types := reflect.TypeOf(pool).Elem()
+		// copy := reflect.New(types).Elem()
+		// org := reflect.ValueOf(pool)
+		// for i:=0;i< copy.NumField();i++ {
+		// 	field := copy.Type().Field(i)
+		// 	if field.Type != reflect.TypeOf(sync.Mutex{}) {
+		// 		copy.Field(i).Set(org.Elem().Field(i))
+		// 	}
+		// }
 		// copy.mu = sync.Mutex{}
-		pool.mu.Unlock()
-		fmt.Print("name = ",name)
-		fmt.Println("pool = " ,copy.Interface())
+		// pool.mu.Unlock()
+		// fmt.Print("name = ",name)
+		// fmt.Println("pool = " ,copy.Interface())
 	}
 }
 
