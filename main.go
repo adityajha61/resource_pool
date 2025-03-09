@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -67,9 +68,19 @@ func (pm *PoolManager) AlterPool(newPool *ResourcePool) bool {
 	if newPool.MaxMemoryPer > 0 {
 		oldPool.MaxMemoryPer = newPool.MaxMemoryPer
 	}
-	if newPool.MaxConcurrency > 0 {
-		oldPool.MaxConcurrency = newPool.MaxConcurrency
+	if newPool.MaxConcurrency > 0 && newPool.MaxConcurrency != oldPool.MaxConcurrency {
+		close(oldPool.ActiveQueries)
+		tempChan := make(chan struct{},oldPool.MaxConcurrency)
+		// newActive := make(chan struct{}, newPool.MaxConcurrency)
+		for range oldPool.ActiveQueries {
+			tempChan <- <-oldPool.ActiveQueries
+		}
 		oldPool.ActiveQueries = make(chan struct{}, newPool.MaxConcurrency)
+		// n:= len(tempChan)
+		for i:=0;i<len(tempChan);i++ {
+			oldPool.ActiveQueries <- <-tempChan
+		}
+		oldPool.MaxConcurrency = newPool.MaxConcurrency
 	}
 	return true
 }
@@ -103,14 +114,15 @@ func (p *ResourcePool) SubmitQuery(query Query, wg *sync.WaitGroup) {
 	p.UsedCPU += query.CPUReq
 	p.UsedMemory += query.MemReq
 
-	p.mu.Unlock()
+	// p.mu.Unlock()
 
 	//doing query exec
+	// time.Sleep(1*time.Second)
 	if(query.ExecTime > query.Timeout){
-		fmt.Printf("timedout %d", query.ID)
+		fmt.Printf("timedout %s", query.ID)
 	}
 
-	p.mu.Lock()
+	// p.mu.Lock()
 	p.UsedCPU -= query.CPUReq
 	p.UsedMemory -= query.MemReq
 	p.mu.Unlock()
@@ -126,6 +138,55 @@ func (pm *PoolManager) SubmitQueryToPool(name string, query Query, wg *sync.Wait
 	go pool.SubmitQuery(query,wg)
 }
 
+func (pm *PoolManager) ShowPools() {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	for name,pool := range pm.pools {
+		pool.mu.Lock()
+		// copy := ResourcePool{
+		// 	Name: pool.Name,
+		// 	MaxCPU: pool.MaxCPU,
+		// 	MaxMemoryPer: pool.MaxMemoryPer,
+		// 	MaxConcurrency: pool.MaxConcurrency,
+		// 	UsedCPU: pool.UsedCPU,
+		// 	UsedMemory: pool.UsedMemory,
+		// 	ActiveQueries: pool.ActiveQueries,
+		// }
+		types := reflect.TypeOf(pool).Elem()
+		copy := reflect.New(types).Elem()
+		org := reflect.ValueOf(pool)
+		for i:=0;i< copy.NumField();i++ {
+			field := copy.Type().Field(i)
+			if field.Type != reflect.TypeOf(sync.Mutex{}) {
+				copy.Field(i).Set(org.Elem().Field(i))
+			}
+		}
+		// copy.mu = sync.Mutex{}
+		pool.mu.Unlock()
+		fmt.Print("name = ",name)
+		fmt.Println("pool = " ,copy.Interface())
+	}
+}
+
+func (pm *PoolManager) DropPool(name string) bool {
+	pm.mu.Lock()
+	defer pm.mu.Unlock()
+	pool,ok := pm.GetPool(name)
+	if !ok {
+		return false
+	}
+	
+	select {
+	case <- pool.ActiveQueries :
+			fmt.Println("waiting for queries to execute")
+	default:
+		close(pool.ActiveQueries)
+	}
+
+	delete(pm.pools,name)
+	return true
+}
+
 func main() {
 	pm := NewPoolManager()
 
@@ -139,8 +200,8 @@ func main() {
 		name string
 		query Query
 	}{
-		{"rpool", Query{"q1",10,20,1*time.Second,2*time.Second}},
-		{"rpool2", Query{"q2",12,25,1*time.Second,2*time.Second},},
+		{"test", Query{"q1",10,20,1*time.Second,2*time.Second}},
+		{"test2", Query{"q2",12,25,1*time.Second,2*time.Second},},
 	}
 
 	var wg sync.WaitGroup
@@ -159,12 +220,15 @@ func main() {
 		MaxMemoryPer:  70,     // Update Memory limit
 		MaxConcurrency: 50,    // Update max concurrent queries
 	}
-	old,_ := pm.GetPool(newConfig.Name)
-	fmt.Println( " old pool = ", old)
+	// old,_ := pm.GetPool(newConfig.Name)
+	fmt.Println( " show pools ")
+	pm.ShowPools()
 	pm.AlterPool(newConfig)
-	new,_ := pm.GetPool(newConfig.Name)
-	fmt.Println( " new pool = ", new)
+	fmt.Println( " show pools ")
+	pm.ShowPools()
+	// new,_ := pm.GetPool(newConfig.Name)
+	// fmt.Println( " new pool = ", new)
 	wg.Wait()
 	// time.Sleep(4*time.Second)
-	fmt.Print(SystemTotalMem)
+	fmt.Print(SystemTotalMem,newConfig)
 }
